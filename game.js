@@ -1,6 +1,10 @@
+import * as THREE from 'three';
+import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/loaders/FBXLoader.js';
+
 const lanes = [-2.5, 0, 2.5];
 const itemSpeedBase = 0.35;
 const spawnIntervalSeconds = 0.9;
+const gameOverDelaySeconds = 0.8;
 
 let scene, camera, renderer;
 let player, roadSegments = [], obstacles = [], coins = [];
@@ -10,17 +14,28 @@ let score = 0;
 let coinsCollected = 0;
 let spawnTimer = 0;
 let speedMultiplier = 1;
+let gameOverTimer = 0;
 let scoreDisplay, coinDisplay, overlayStart, overlayGameOver, finalScoreLabel, finalCoinsLabel;
 let startButton, restartButton;
 let touchStart = null;
 
 class RunnerPlayer {
   constructor() {
-    const geometry = new THREE.BoxGeometry(1.2, 1.8, 1.2);
-    const material = new THREE.MeshStandardMaterial({ color: 0x50c9ff });
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = false;
+    const colliderGeometry = new THREE.BoxGeometry(1.2, 1.8, 1.2);
+    const colliderMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000, visible: false });
+    this.collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
+    this.collider.castShadow = false;
+    this.collider.receiveShadow = false;
+
+    this.mesh = new THREE.Group();
+    this.mesh.add(this.collider);
+
+    const placeholderGeometry = new THREE.BoxGeometry(1.2, 1.8, 1.2);
+    const placeholderMaterial = new THREE.MeshStandardMaterial({ color: 0x50c9ff });
+    this.placeholder = new THREE.Mesh(placeholderGeometry, placeholderMaterial);
+    this.placeholder.castShadow = true;
+    this.mesh.add(this.placeholder);
+
     this.currentLane = 1;
     this.targetLane = 1;
     this.jumpVelocity = 0;
@@ -28,7 +43,140 @@ class RunnerPlayer {
     this.isJumping = false;
     this.isSliding = false;
     this.slideTimer = 0;
+
     this.mesh.position.set(lanes[1], 0.9, 0);
+
+    this.mixer = null;
+    this.actions = {};
+    this.activeAction = null;
+    this.isModelLoaded = false;
+
+    this.loadCharacter();
+  }
+
+  loadCharacter() {
+    const loader = new FBXLoader();
+    loader.load(
+      'assets/characters/runner/Run.fbx',
+      (fbx) => {
+        fbx.scale.setScalar(0.01);
+        fbx.rotation.y = Math.PI;
+        fbx.position.set(0, -0.9, 0);
+        fbx.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        this.visual = fbx;
+        this.mesh.add(fbx);
+        this.mesh.remove(this.placeholder);
+        this.placeholder.geometry.dispose();
+        this.placeholder.material.dispose();
+        this.placeholder = null;
+        this.mixer = new THREE.AnimationMixer(fbx);
+
+        if (fbx.animations && fbx.animations[0]) {
+          const runClip = this.removeRootMotion(fbx.animations[0]);
+          this.actions.run = this.mixer.clipAction(runClip);
+          this.actions.run.loop = THREE.LoopRepeat;
+          this.actions.run.play();
+          this.activeAction = this.actions.run;
+        } else {
+          console.warn('Run.fbx loaded without an animation clip. The character will remain visible without animation.');
+        }
+
+        this.loadAnimationClip(loader, 'Jump.fbx', 'jump');
+        this.loadAnimationClip(loader, 'Slide.fbx', 'slide');
+        this.loadAnimationClip(loader, 'Falling.fbx', 'falling');
+        this.setupMixerEvents();
+        this.isModelLoaded = true;
+      },
+      undefined,
+      (error) => {
+        console.error(
+          'Failed to load assets/characters/runner/Run.fbx. Using the placeholder player.',
+          error
+        );
+      }
+    );
+  }
+
+  removeRootMotion(sourceClip) {
+    const clip = sourceClip.clone();
+    let adjustedTrackCount = 0;
+
+    for (const track of clip.tracks) {
+      const trackName = track.name.toLowerCase();
+      const isRootPositionTrack =
+        trackName.endsWith('.position') &&
+        (trackName.includes('hips') || trackName.includes('root'));
+
+      if (!isRootPositionTrack || track.getValueSize() !== 3) continue;
+
+      const rootX = track.values[0];
+      const rootZ = track.values[2];
+      for (let index = 0; index < track.values.length; index += 3) {
+        track.values[index] = rootX;
+        track.values[index + 2] = rootZ;
+      }
+      adjustedTrackCount += 1;
+    }
+
+    if (adjustedTrackCount === 0) {
+      console.warn(`No Mixamo root position track was found in animation "${clip.name}".`);
+    }
+
+    return clip;
+  }
+
+  loadAnimationClip(loader, fileName, actionName) {
+    const path = `assets/characters/runner/${fileName}`;
+    loader.load(
+      path,
+      (object) => {
+        if (!this.mixer) return;
+        if (!object.animations || object.animations.length === 0) {
+          console.warn(`${path} loaded without an animation clip.`);
+          return;
+        }
+        const clip = this.removeRootMotion(object.animations[0]);
+        const action = this.mixer.clipAction(clip);
+        action.loop = actionName === 'run' ? THREE.LoopRepeat : THREE.LoopOnce;
+        action.clampWhenFinished = actionName !== 'run';
+        action.enabled = true;
+        action.setEffectiveTimeScale(1);
+        action.setEffectiveWeight(1);
+        this.actions[actionName] = action;
+      },
+      undefined,
+      (error) => {
+        console.error(`Failed to load animation ${path}. Gameplay will continue without it.`, error);
+      }
+    );
+  }
+
+  setupMixerEvents() {
+    if (!this.mixer) return;
+    this.mixer.addEventListener('finished', (event) => {
+      if (gameState !== 'playing') return;
+      if (event.action === this.actions.jump || event.action === this.actions.slide) {
+        this.setAction('run', 0.15);
+      }
+    });
+  }
+
+  setAction(name, fadeDuration = 0.2) {
+    const nextAction = this.actions[name];
+    if (!nextAction || nextAction === this.activeAction) return;
+    nextAction.reset();
+    nextAction.play();
+    nextAction.fadeIn(fadeDuration);
+    if (this.activeAction) {
+      this.activeAction.fadeOut(fadeDuration);
+    }
+    this.activeAction = nextAction;
   }
 
   moveLeft() {
@@ -43,6 +191,9 @@ class RunnerPlayer {
     if (!this.isJumping && !this.isSliding) {
       this.isJumping = true;
       this.jumpVelocity = 0.45;
+      if (this.isModelLoaded && this.actions.jump) {
+        this.setAction('jump', 0.12);
+      }
     }
   }
 
@@ -50,8 +201,32 @@ class RunnerPlayer {
     if (!this.isJumping && !this.isSliding) {
       this.isSliding = true;
       this.slideTimer = 0.5;
-      this.mesh.scale.y = 0.55;
-      this.mesh.position.y = 0.55;
+      if (this.actions.slide) {
+        this.setAction('slide', 0.12);
+      }
+    }
+  }
+
+  playFalling() {
+    if (this.actions.falling) {
+      this.setAction('falling', 0.2);
+      return true;
+    }
+    console.warn('Falling animation is not available. Showing the game over scene without it.');
+    return false;
+  }
+
+  resetState() {
+    this.targetLane = 1;
+    this.currentLane = 1;
+    this.jumpVelocity = 0;
+    this.verticalPosition = 0;
+    this.isJumping = false;
+    this.isSliding = false;
+    this.slideTimer = 0;
+    this.mesh.position.set(lanes[1], 0.9, 0);
+    if (this.actions.run) {
+      this.setAction('run', 0.15);
     }
   }
 
@@ -74,17 +249,24 @@ class RunnerPlayer {
       this.slideTimer -= delta;
       if (this.slideTimer <= 0) {
         this.isSliding = false;
-        this.mesh.scale.y = 1;
-        this.mesh.position.y = 0.9 + this.verticalPosition;
       }
     }
 
     this.mesh.position.y = 0.9 + this.verticalPosition;
+
+    if (this.mixer) {
+      this.mixer.update(delta);
+    }
+  }
+
+  updateAnimation(delta) {
+    if (this.mixer) {
+      this.mixer.update(delta);
+    }
   }
 
   getBoundingBox() {
-    const box = new THREE.Box3().setFromObject(this.mesh);
-    return box;
+    return new THREE.Box3().setFromObject(this.collider);
   }
 }
 
@@ -198,17 +380,14 @@ function resetGame() {
   coinsCollected = 0;
   spawnTimer = 0;
   speedMultiplier = 1;
+  gameOverTimer = 0;
   obstacles.forEach((ob) => scene.remove(ob.mesh));
   coins.forEach((coin) => scene.remove(coin.mesh));
   obstacles = [];
   coins = [];
-  player.targetLane = 1;
-  player.currentLane = 1;
-  player.mesh.position.set(lanes[1], 0.9, 0);
-  player.mesh.scale.set(1, 1, 1);
-  player.verticalPosition = 0;
-  player.isJumping = false;
-  player.isSliding = false;
+  if (player) {
+    player.resetState();
+  }
   scoreDisplay.textContent = '0';
   coinDisplay.textContent = '0';
 }
@@ -221,9 +400,19 @@ function startGame() {
 }
 
 function endGame() {
-  gameState = 'over';
+  if (gameState !== 'playing') return;
+
+  gameState = 'dying';
+  gameOverTimer = player && player.playFalling() ? gameOverDelaySeconds : 0;
   finalScoreLabel.textContent = `Score: ${Math.floor(score)}`;
   finalCoinsLabel.textContent = `Coins: ${coinsCollected}`;
+  if (gameOverTimer === 0) {
+    showGameOver();
+  }
+}
+
+function showGameOver() {
+  gameState = 'over';
   overlayGameOver.classList.add('active');
 }
 
@@ -327,6 +516,14 @@ function animate(time) {
 
   if (gameState === 'playing') {
     updateGame(delta);
+  } else if (gameState === 'dying') {
+    player.updateAnimation(delta);
+    gameOverTimer -= delta;
+    if (gameOverTimer <= 0) {
+      showGameOver();
+    }
+  } else if (gameState === 'over') {
+    player.updateAnimation(delta);
   }
 
   renderer.render(scene, camera);

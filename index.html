@@ -34,7 +34,13 @@
     <div id="game-container"></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-  <script src="game.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="game.js"></script>
 </body>
 </html>

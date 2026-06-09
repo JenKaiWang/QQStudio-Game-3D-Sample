@@ -45,6 +45,26 @@ body, html {
   pointer-events: auto;
 }
 
+#overlay-gameover {
+  background: rgba(8, 11, 17, 0.34);
+  backdrop-filter: blur(2px);
+}
+
+#overlay-gameover .panel {
+  background: rgba(21, 25, 32, 0.88);
+}
+
+@media (min-width: 700px) {
+  #overlay-gameover {
+    justify-content: flex-end;
+    padding-right: 24px;
+  }
+
+  #overlay-gameover .panel {
+    max-width: 300px;
+  }
+}
+
 .panel {
   max-width: 360px;
   width: min(92vw, 360px);
