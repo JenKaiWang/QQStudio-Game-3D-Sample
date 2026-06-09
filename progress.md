@@ -31,6 +31,27 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - On wider screens, the game-over panel is positioned beside the failed character.
 - Restart clears the death state, resets the score and coins, and resumes the run animation.
 
+## Obstacle Variety And Collision Rules
+
+- Added three visually distinct obstacle types with dedicated collision meshes.
+- `low`: a short orange floor barrier that must be jumped.
+- `tall`: a red wall that remains too high to clear with the normal jump and must be avoided by switching lanes.
+- `overhead`: a purple hanging bar that must be passed with a slide.
+- Sliding now temporarily shortens and lowers the invisible player collider.
+- Collision decisions use the actual player and obstacle bounding boxes instead of broad jump/slide exemptions.
+- Spawning remains limited to one lane at each spawn point, so all three lanes are never blocked together.
+- Direct low-to-overhead and overhead-to-low sequences are replaced with a tall obstacle to avoid unfair rapid action changes.
+- Minimum spawn spacing was increased to provide more reaction time on mobile controls.
+
+## Character Skin And Animation Retargeting
+
+- Replaced the original `Run.fbx` character with the selected new skinned Mixamo model.
+- Added a per-page cache version to the `Run.fbx` request so browsers do not reuse an older character skin after the file is replaced.
+- The active model uses `mixamorig9` bone names, while the existing Jump, Slide, and Falling clips use `mixamorig1`.
+- Added automatic Mixamo track retargeting that detects the active model's hips prefix and renames animation track targets before creating actions.
+- Jump, Slide, and Falling now animate the new skin instead of switching it to a T-pose.
+- Root-motion cleanup still runs after retargeting, so all animations remain aligned with the gameplay collider.
+
 ## Completed Work
 
 - Created `index.html`, `styles.css`, and `game.js`.
@@ -45,6 +66,9 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Added resilient FBX error handling and placeholder fallback behavior.
 - Removed unwanted Mixamo root motion so animations play in place.
 - Added a visible Falling animation and delayed game-over overlay sequence.
+- Added low, tall, and overhead obstacle gameplay with action-specific collision rules.
+- Added reliable character asset cache busting for replaced `Run.fbx` files.
+- Added automatic Mixamo bone-prefix retargeting for animation clips from compatible Mixamo rigs.
 
 ## Files Created or Changed
 
@@ -73,6 +97,8 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Character animations stay aligned with the gameplay collider.
 - Collision freezes the world while allowing the Falling animation to finish.
 - The failed character and scene remain visible behind the game-over UI.
+- Jump clears low barriers, slide clears overhead bars, and lane switching avoids tall walls.
+- The selected new character skin plays Run, Jump, Slide, and Falling without T-pose transitions.
 
 ## Known Issues / Limitations
 
@@ -85,11 +111,16 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - The FBX files are large, especially `Run.fbx`, so the character may take time to appear on slower connections or devices.
 - `assets/character animation/` contains duplicate FBX files but is not used by the game.
 - The game-over animation delay is currently fixed at 0.8 seconds and may need tuning if `Falling.fbx` is replaced.
+- Obstacle sizes and spawn weights are initial balancing values and should be tuned through mobile playtesting.
+- Random single-lane spawning does not yet create authored multi-obstacle patterns or difficulty tiers.
+- Automatic animation retargeting currently supports compatible Mixamo rigs whose main difference is the `mixamorig` numeric prefix.
 
 ## Recommended Next Steps
 
 1. Optimize or compress `Run.fbx` to reduce its current load size.
 2. Fine tune the Mixamo model scale, orientation, and animation transitions on target devices.
 3. Remove the unused duplicate `assets/character animation/` folder after confirming it is no longer needed.
-4. Replace remaining placeholder geometry with original QQ Studio brand assets.
-5. Add audio, camera polish, and a first-time tutorial.
+4. Add authored obstacle patterns with guaranteed escape lanes and difficulty progression.
+5. Tune jump height, slide duration, obstacle dimensions, and spawn spacing on mobile devices.
+6. Replace remaining placeholder geometry with original QQ Studio brand assets.
+7. Add audio, camera polish, and a first-time tutorial.

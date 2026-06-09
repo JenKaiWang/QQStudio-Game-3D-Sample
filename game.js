@@ -3,8 +3,10 @@ import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/j
 
 const lanes = [-2.5, 0, 2.5];
 const itemSpeedBase = 0.35;
-const spawnIntervalSeconds = 0.9;
+const spawnIntervalSeconds = 1;
 const gameOverDelaySeconds = 0.8;
+const obstacleTypes = ['low', 'tall', 'overhead'];
+const assetCacheVersion = Date.now();
 
 let scene, camera, renderer;
 let player, roadSegments = [], obstacles = [], coins = [];
@@ -15,6 +17,7 @@ let coinsCollected = 0;
 let spawnTimer = 0;
 let speedMultiplier = 1;
 let gameOverTimer = 0;
+let lastObstacleType = null;
 let scoreDisplay, coinDisplay, overlayStart, overlayGameOver, finalScoreLabel, finalCoinsLabel;
 let startButton, restartButton;
 let touchStart = null;
@@ -50,19 +53,24 @@ class RunnerPlayer {
     this.actions = {};
     this.activeAction = null;
     this.isModelLoaded = false;
+    this.rigPrefix = null;
 
     this.loadCharacter();
   }
 
   loadCharacter() {
     const loader = new FBXLoader();
+    const runModelPath = 'assets/characters/runner/Run.fbx';
     loader.load(
-      'assets/characters/runner/Run.fbx',
+      `${runModelPath}?v=${assetCacheVersion}`,
       (fbx) => {
         fbx.scale.setScalar(0.01);
         fbx.rotation.y = Math.PI;
         fbx.position.set(0, -0.9, 0);
         fbx.traverse((child) => {
+          if (child.isBone && child.name.endsWith('Hips')) {
+            this.rigPrefix = child.name.slice(0, -'Hips'.length);
+          }
           if (child.isMesh) {
             child.castShadow = true;
             child.receiveShadow = true;
@@ -78,7 +86,7 @@ class RunnerPlayer {
         this.mixer = new THREE.AnimationMixer(fbx);
 
         if (fbx.animations && fbx.animations[0]) {
-          const runClip = this.removeRootMotion(fbx.animations[0]);
+          const runClip = this.prepareAnimationClip(fbx.animations[0]);
           this.actions.run = this.mixer.clipAction(runClip);
           this.actions.run.loop = THREE.LoopRepeat;
           this.actions.run.play();
@@ -96,11 +104,29 @@ class RunnerPlayer {
       undefined,
       (error) => {
         console.error(
-          'Failed to load assets/characters/runner/Run.fbx. Using the placeholder player.',
+          `Failed to load ${runModelPath}. Using the placeholder player.`,
           error
         );
       }
     );
+  }
+
+  prepareAnimationClip(sourceClip) {
+    const clip = sourceClip.clone();
+
+    if (this.rigPrefix) {
+      for (const track of clip.tracks) {
+        const propertySeparator = track.name.lastIndexOf('.');
+        if (propertySeparator === -1) continue;
+
+        const boneName = track.name.slice(0, propertySeparator);
+        const propertyName = track.name.slice(propertySeparator);
+        const boneSuffix = boneName.replace(/^mixamorig\d*/i, '');
+        track.name = `${this.rigPrefix}${boneSuffix}${propertyName}`;
+      }
+    }
+
+    return this.removeRootMotion(clip);
   }
 
   removeRootMotion(sourceClip) {
@@ -141,7 +167,7 @@ class RunnerPlayer {
           console.warn(`${path} loaded without an animation clip.`);
           return;
         }
-        const clip = this.removeRootMotion(object.animations[0]);
+        const clip = this.prepareAnimationClip(object.animations[0]);
         const action = this.mixer.clipAction(clip);
         action.loop = actionName === 'run' ? THREE.LoopRepeat : THREE.LoopOnce;
         action.clampWhenFinished = actionName !== 'run';
@@ -201,6 +227,8 @@ class RunnerPlayer {
     if (!this.isJumping && !this.isSliding) {
       this.isSliding = true;
       this.slideTimer = 0.5;
+      this.collider.scale.y = 0.45;
+      this.collider.position.y = -0.5;
       if (this.actions.slide) {
         this.setAction('slide', 0.12);
       }
@@ -224,6 +252,8 @@ class RunnerPlayer {
     this.isJumping = false;
     this.isSliding = false;
     this.slideTimer = 0;
+    this.collider.scale.set(1, 1, 1);
+    this.collider.position.set(0, 0, 0);
     this.mesh.position.set(lanes[1], 0.9, 0);
     if (this.actions.run) {
       this.setAction('run', 0.15);
@@ -249,6 +279,8 @@ class RunnerPlayer {
       this.slideTimer -= delta;
       if (this.slideTimer <= 0) {
         this.isSliding = false;
+        this.collider.scale.y = 1;
+        this.collider.position.y = 0;
       }
     }
 
@@ -266,21 +298,60 @@ class RunnerPlayer {
   }
 
   getBoundingBox() {
+    this.collider.updateWorldMatrix(true, false);
     return new THREE.Box3().setFromObject(this.collider);
   }
 }
 
 class RunnerObstacle {
   constructor(lane, type) {
-    const height = type === 'low' ? 1 : 2;
-    const geometry = new THREE.BoxGeometry(1.6, height, 1.6);
-    const material = new THREE.MeshStandardMaterial({ color: 0xff7a5a });
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.castShadow = true;
-    this.mesh.position.set(lanes[lane], height / 2, -100);
+    this.mesh = new THREE.Group();
+    this.collider = this.createVisual(type);
+    this.mesh.position.set(lanes[lane], 0, -100);
     this.lane = lane;
     this.type = type;
     this.active = true;
+  }
+
+  createVisual(type) {
+    if (type === 'low') {
+      const barrier = this.createBox(1.8, 0.75, 1.2, 0xffb347);
+      barrier.position.y = 0.375;
+
+      const stripe = this.createBox(1.82, 0.14, 1.22, 0xffe0a3);
+      stripe.position.y = 0.5;
+      this.mesh.add(barrier, stripe);
+      return barrier;
+    }
+
+    if (type === 'tall') {
+      const wall = this.createBox(2, 4.6, 1.35, 0xe14b4b);
+      wall.position.y = 2.3;
+
+      const panel = this.createBox(1.55, 0.28, 1.38, 0xff9a76);
+      panel.position.y = 2.8;
+      this.mesh.add(wall, panel);
+      return wall;
+    }
+
+    const hangingBar = this.createBox(1.9, 0.6, 1.35, 0x9b6dff);
+    hangingBar.position.y = 1.55;
+
+    const leftSupport = this.createBox(0.16, 2.2, 1.35, 0x5c42a8);
+    leftSupport.position.set(-1.08, 1.1, 0);
+    const rightSupport = leftSupport.clone();
+    rightSupport.position.x = 1.08;
+    this.mesh.add(hangingBar, leftSupport, rightSupport);
+    return hangingBar;
+  }
+
+  createBox(width, height, depth, color) {
+    const geometry = new THREE.BoxGeometry(width, height, depth);
+    const material = new THREE.MeshStandardMaterial({ color });
+    const box = new THREE.Mesh(geometry, material);
+    box.castShadow = true;
+    box.receiveShadow = true;
+    return box;
   }
 
   update(delta, speed) {
@@ -291,7 +362,8 @@ class RunnerObstacle {
   }
 
   getBoundingBox() {
-    return new THREE.Box3().setFromObject(this.mesh);
+    this.collider.updateWorldMatrix(true, false);
+    return new THREE.Box3().setFromObject(this.collider);
   }
 }
 
@@ -381,6 +453,7 @@ function resetGame() {
   spawnTimer = 0;
   speedMultiplier = 1;
   gameOverTimer = 0;
+  lastObstacleType = null;
   obstacles.forEach((ob) => scene.remove(ob.mesh));
   coins.forEach((coin) => scene.remove(coin.mesh));
   obstacles = [];
@@ -419,17 +492,27 @@ function showGameOver() {
 function spawnItem() {
   const choice = Math.random();
   const lane = Math.floor(Math.random() * lanes.length);
-  if (choice < 0.55) {
-    const obstacleType = Math.random() < 0.55 ? 'low' : 'high';
+  if (choice < 0.65) {
+    let obstacleType = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+    const isRapidActionChange =
+      (lastObstacleType === 'low' && obstacleType === 'overhead') ||
+      (lastObstacleType === 'overhead' && obstacleType === 'low');
+
+    if (isRapidActionChange) {
+      obstacleType = 'tall';
+    }
+
     const obstacle = new RunnerObstacle(lane, obstacleType);
     obstacle.mesh.position.z = -110;
     scene.add(obstacle.mesh);
     obstacles.push(obstacle);
+    lastObstacleType = obstacleType;
   } else {
     const coin = new CoinItem(lane);
     coin.mesh.position.z = -110;
     scene.add(coin.mesh);
     coins.push(coin);
+    lastObstacleType = null;
   }
 }
 
@@ -454,7 +537,7 @@ function updateGame(delta) {
   spawnTimer -= delta;
   if (spawnTimer <= 0) {
     spawnItem();
-    spawnTimer = spawnIntervalSeconds - Math.min(0.4, score * 0.005);
+    spawnTimer = spawnIntervalSeconds - Math.min(0.25, score * 0.0025);
   }
 
   for (const obstacle of obstacles) {
@@ -488,12 +571,6 @@ function detectCollisions() {
   for (const obstacle of obstacles) {
     const obstacleBox = obstacle.getBoundingBox();
     if (playerBox.intersectsBox(obstacleBox)) {
-      if (player.isJumping && obstacle.type === 'low') {
-        continue;
-      }
-      if (player.isSliding && obstacle.type === 'high') {
-        continue;
-      }
       endGame();
       return;
     }
