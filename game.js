@@ -6,7 +6,7 @@ const itemSpeedBase = 0.35;
 const spawnIntervalSeconds = 1;
 const gameOverDelaySeconds = 0.8;
 const obstacleTypes = ['low', 'tall', 'overhead'];
-const assetCacheVersion = Date.now();
+const characterAssetVersion = '2026-06-09-new-skin';
 
 let scene, camera, renderer;
 let player, roadSegments = [], obstacles = [], coins = [];
@@ -19,11 +19,11 @@ let speedMultiplier = 1;
 let gameOverTimer = 0;
 let lastObstacleType = null;
 let scoreDisplay, coinDisplay, overlayStart, overlayGameOver, finalScoreLabel, finalCoinsLabel;
-let startButton, restartButton;
+let startButton, restartButton, loadingStatus;
 let touchStart = null;
 
 class RunnerPlayer {
-  constructor() {
+  constructor(onLoadingStatus) {
     const colliderGeometry = new THREE.BoxGeometry(1.2, 1.8, 1.2);
     const colliderMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000, visible: false });
     this.collider = new THREE.Mesh(colliderGeometry, colliderMaterial);
@@ -53,62 +53,115 @@ class RunnerPlayer {
     this.actions = {};
     this.activeAction = null;
     this.isModelLoaded = false;
+    this.isReady = false;
     this.rigPrefix = null;
+    this.onLoadingStatus = onLoadingStatus;
 
-    this.loadCharacter();
+    this.readyPromise = this.loadCharacter();
   }
 
-  loadCharacter() {
+  loadFbx(loader, path) {
+    return new Promise((resolve, reject) => {
+      loader.load(
+        `${path}?v=${characterAssetVersion}`,
+        resolve,
+        undefined,
+        reject
+      );
+    });
+  }
+
+  async loadCharacter() {
     const loader = new FBXLoader();
     const runModelPath = 'assets/characters/runner/Run.fbx';
-    loader.load(
-      `${runModelPath}?v=${assetCacheVersion}`,
-      (fbx) => {
-        fbx.scale.setScalar(0.01);
-        fbx.rotation.y = Math.PI;
-        fbx.position.set(0, -0.9, 0);
-        fbx.traverse((child) => {
-          if (child.isBone && child.name.endsWith('Hips')) {
-            this.rigPrefix = child.name.slice(0, -'Hips'.length);
-          }
-          if (child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-          }
-        });
+    const animationFiles = [
+      { fileName: 'Jump.fbx', actionName: 'jump' },
+      { fileName: 'Slide.fbx', actionName: 'slide' },
+      { fileName: 'Falling.fbx', actionName: 'falling' }
+    ];
 
-        this.visual = fbx;
-        this.mesh.add(fbx);
-        this.mesh.remove(this.placeholder);
-        this.placeholder.geometry.dispose();
-        this.placeholder.material.dispose();
-        this.placeholder = null;
-        this.mixer = new THREE.AnimationMixer(fbx);
+    this.onLoadingStatus('Loading character...');
 
-        if (fbx.animations && fbx.animations[0]) {
-          const runClip = this.prepareAnimationClip(fbx.animations[0]);
-          this.actions.run = this.mixer.clipAction(runClip);
-          this.actions.run.loop = THREE.LoopRepeat;
-          this.actions.run.play();
-          this.activeAction = this.actions.run;
-        } else {
-          console.warn('Run.fbx loaded without an animation clip. The character will remain visible without animation.');
+    const runPromise = this.loadFbx(loader, runModelPath);
+    const animationResultsPromise = Promise.allSettled(
+      animationFiles.map(({ fileName }) =>
+        this.loadFbx(loader, `assets/characters/runner/${fileName}`)
+      )
+    );
+
+    try {
+      const fbx = await runPromise;
+      this.setupCharacterModel(fbx);
+      this.onLoadingStatus('Loading animations...');
+
+      const animationResults = await animationResultsPromise;
+      let allAnimationsReady = Boolean(this.actions.run);
+
+      animationResults.forEach((result, index) => {
+        const { fileName, actionName } = animationFiles[index];
+        const path = `assets/characters/runner/${fileName}`;
+
+        if (result.status === 'rejected') {
+          allAnimationsReady = false;
+          console.error(`Failed to load required animation ${path}.`, result.reason);
+          return;
         }
 
-        this.loadAnimationClip(loader, 'Jump.fbx', 'jump');
-        this.loadAnimationClip(loader, 'Slide.fbx', 'slide');
-        this.loadAnimationClip(loader, 'Falling.fbx', 'falling');
-        this.setupMixerEvents();
-        this.isModelLoaded = true;
-      },
-      undefined,
-      (error) => {
-        console.error(
-          `Failed to load ${runModelPath}. Using the placeholder player.`,
-          error
-        );
+        if (!this.createAnimationAction(result.value, actionName, path)) {
+          allAnimationsReady = false;
+        }
+      });
+
+      this.setupMixerEvents();
+      this.isModelLoaded = true;
+      this.isReady = true;
+
+      if (!allAnimationsReady) {
+        console.warn('One or more required animations are unavailable. Gameplay will use available actions.');
+        return { fallback: true, placeholder: false };
       }
-    );
+
+      return { fallback: false, placeholder: false };
+    } catch (error) {
+      await animationResultsPromise;
+      console.error(`Failed to load ${runModelPath}. Using the placeholder player.`, error);
+      this.isReady = true;
+      return { fallback: true, placeholder: true };
+    }
+  }
+
+  setupCharacterModel(fbx) {
+    fbx.scale.setScalar(0.01);
+    fbx.rotation.y = Math.PI;
+    fbx.position.set(0, -0.9, 0);
+    fbx.traverse((child) => {
+      if (child.isBone && child.name.endsWith('Hips')) {
+        this.rigPrefix = child.name.slice(0, -'Hips'.length);
+      }
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    this.visual = fbx;
+    this.mesh.add(fbx);
+    this.mesh.remove(this.placeholder);
+    this.placeholder.geometry.dispose();
+    this.placeholder.material.dispose();
+    this.placeholder = null;
+    this.mixer = new THREE.AnimationMixer(fbx);
+
+    if (!fbx.animations || !fbx.animations[0]) {
+      console.error('Run.fbx loaded without its required run animation.');
+      return;
+    }
+
+    const runClip = this.prepareAnimationClip(fbx.animations[0]);
+    this.actions.run = this.mixer.clipAction(runClip);
+    this.actions.run.loop = THREE.LoopRepeat;
+    this.actions.run.play();
+    this.activeAction = this.actions.run;
   }
 
   prepareAnimationClip(sourceClip) {
@@ -157,30 +210,21 @@ class RunnerPlayer {
     return clip;
   }
 
-  loadAnimationClip(loader, fileName, actionName) {
-    const path = `assets/characters/runner/${fileName}`;
-    loader.load(
-      path,
-      (object) => {
-        if (!this.mixer) return;
-        if (!object.animations || object.animations.length === 0) {
-          console.warn(`${path} loaded without an animation clip.`);
-          return;
-        }
-        const clip = this.prepareAnimationClip(object.animations[0]);
-        const action = this.mixer.clipAction(clip);
-        action.loop = actionName === 'run' ? THREE.LoopRepeat : THREE.LoopOnce;
-        action.clampWhenFinished = actionName !== 'run';
-        action.enabled = true;
-        action.setEffectiveTimeScale(1);
-        action.setEffectiveWeight(1);
-        this.actions[actionName] = action;
-      },
-      undefined,
-      (error) => {
-        console.error(`Failed to load animation ${path}. Gameplay will continue without it.`, error);
-      }
-    );
+  createAnimationAction(object, actionName, path) {
+    if (!this.mixer || !object.animations || object.animations.length === 0) {
+      console.error(`${path} loaded without a required animation clip.`);
+      return false;
+    }
+
+    const clip = this.prepareAnimationClip(object.animations[0]);
+    const action = this.mixer.clipAction(clip);
+    action.loop = THREE.LoopOnce;
+    action.clampWhenFinished = true;
+    action.enabled = true;
+    action.setEffectiveTimeScale(1);
+    action.setEffectiveWeight(1);
+    this.actions[actionName] = action;
+    return true;
   }
 
   setupMixerEvents() {
@@ -436,8 +480,25 @@ function setupScene() {
     scene.add(line);
   }
 
-  player = new RunnerPlayer();
+  player = new RunnerPlayer(updateLoadingStatus);
   scene.add(player.mesh);
+
+  player.readyPromise.then(({ fallback, placeholder }) => {
+    const readyMessage = placeholder
+      ? 'Ready (placeholder fallback)'
+      : fallback
+        ? 'Ready (limited animations)'
+        : 'Ready';
+    updateLoadingStatus(readyMessage, fallback);
+    startButton.textContent = 'Start Game';
+    startButton.disabled = false;
+  });
+}
+
+function updateLoadingStatus(message, fallback = false) {
+  loadingStatus.textContent = message;
+  loadingStatus.classList.toggle('ready', message === 'Ready');
+  loadingStatus.classList.toggle('fallback', fallback);
 }
 
 function resize() {
@@ -466,6 +527,8 @@ function resetGame() {
 }
 
 function startGame() {
+  if (!player || !player.isReady || startButton.disabled) return;
+
   resetGame();
   gameState = 'playing';
   overlayStart.classList.remove('active');
@@ -658,6 +721,8 @@ function init() {
   finalCoinsLabel = document.getElementById('final-coins');
   startButton = document.getElementById('start-button');
   restartButton = document.getElementById('restart-button');
+  loadingStatus = document.getElementById('loading-status');
+  startButton.disabled = true;
 
   setupScene();
   window.addEventListener('resize', resize);

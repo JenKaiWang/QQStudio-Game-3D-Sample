@@ -52,6 +52,17 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Jump, Slide, and Falling now animate the new skin instead of switching it to a T-pose.
 - Root-motion cleanup still runs after retargeting, so all animations remain aligned with the gameplay collider.
 
+## Character Preloading
+
+- The character and all required animation FBX files begin loading as soon as the page initializes.
+- Run, Jump, Slide, and Falling requests start before the player can begin gameplay.
+- The Start Game button remains disabled while assets are loading.
+- The start panel reports `Loading character...`, `Loading animations...`, and `Ready`.
+- Gameplay starts only after the character model and required animation actions have been prepared.
+- Restart reuses the existing character, mixer, clips, and actions without loading FBX files again.
+- If required character loading fails, the blue placeholder remains available and the UI reports a fallback-ready state.
+- Replaced the per-reload timestamp cache key with a stable character asset version so the current skin is cached across reloads.
+
 ## Completed Work
 
 - Created `index.html`, `styles.css`, and `game.js`.
@@ -69,6 +80,7 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Added low, tall, and overhead obstacle gameplay with action-specific collision rules.
 - Added reliable character asset cache busting for replaced `Run.fbx` files.
 - Added automatic Mixamo bone-prefix retargeting for animation clips from compatible Mixamo rigs.
+- Added gated character and animation preloading before Start Game becomes available.
 
 ## Files Created or Changed
 
@@ -99,6 +111,7 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - The failed character and scene remain visible behind the game-over UI.
 - Jump clears low barriers, slide clears overhead bars, and lane switching avoids tall walls.
 - The selected new character skin plays Run, Jump, Slide, and Falling without T-pose transitions.
+- Restart reuses already loaded character assets and does not repeat the initial FBX loading work.
 
 ## Known Issues / Limitations
 
@@ -114,6 +127,7 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Obstacle sizes and spawn weights are initial balancing values and should be tuned through mobile playtesting.
 - Random single-lane spawning does not yet create authored multi-obstacle patterns or difficulty tiers.
 - Automatic animation retargeting currently supports compatible Mixamo rigs whose main difference is the `mixamorig` numeric prefix.
+- The current FBX character is large for the web; converting the character and animations to GLB/GLTF is recommended for faster downloads and parsing.
 
 ## Recommended Next Steps
 

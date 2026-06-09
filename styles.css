@@ -102,6 +102,26 @@ button:hover {
   background: #6b8cff;
 }
 
+button:disabled {
+  background: #36415f;
+  color: #9ba4b8;
+  cursor: wait;
+}
+
+.loading-status {
+  min-height: 1.5em;
+  color: #8fb4ff;
+  font-weight: 600;
+}
+
+.loading-status.ready {
+  color: #79d69b;
+}
+
+.loading-status.fallback {
+  color: #ffca7a;
+}
+
 .ui-top {
   position: absolute;
   top: 16px;
