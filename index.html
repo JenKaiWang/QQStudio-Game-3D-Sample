@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QQ Studio 3D Runner Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="game-shell">
+    <div id="overlay-start" class="overlay active">
+      <div class="panel">
+        <h1>QQ Studio Runner</h1>
+        <p>An original 3D playable ad prototype built with Three.js.</p>
+        <button id="start-button">Start Game</button>
+        <p class="hint">Use arrows on desktop or swipe on mobile.</p>
+      </div>
+    </div>
+
+    <div id="overlay-gameover" class="overlay">
+      <div class="panel">
+        <h1>Game Over</h1>
+        <p id="final-score">Score: 0</p>
+        <p id="final-coins">Coins: 0</p>
+        <button id="restart-button">Restart</button>
+      </div>
+    </div>
+
+    <div class="ui-top">
+      <div class="ui-item">Score: <span id="score-value">0</span></div>
+      <div class="ui-item">Coins: <span id="coin-value">0</span></div>
+    </div>
+
+    <div id="game-container"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
