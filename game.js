@@ -3,7 +3,11 @@ import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/j
 
 const lanes = [-2.5, 0, 2.5];
 const itemSpeedBase = 0.35;
-const spawnIntervalSeconds = 1;
+const itemSpeedMax = 0.62;
+const speedRampScore = 950;
+const spawnIntervalSeconds = 1.2;
+const minimumSpawnIntervalSeconds = 1;
+const spawnIntervalRampScore = 1600;
 const gameOverDelaySeconds = 0.8;
 const obstacleTypes = ['low', 'tall', 'overhead'];
 const characterAssetVersion = '2026-06-09-new-skin';
@@ -112,7 +116,6 @@ class RunnerPlayer {
         }
       });
 
-      this.setupMixerEvents();
       this.isModelLoaded = true;
       this.isReady = true;
 
@@ -227,26 +230,31 @@ class RunnerPlayer {
     return true;
   }
 
-  setupMixerEvents() {
-    if (!this.mixer) return;
-    this.mixer.addEventListener('finished', (event) => {
-      if (gameState !== 'playing') return;
-      if (event.action === this.actions.jump || event.action === this.actions.slide) {
-        this.setAction('run', 0.15);
-      }
-    });
-  }
-
-  setAction(name, fadeDuration = 0.2) {
+  setAction(name, fadeDuration = 0.08, restart = false) {
     const nextAction = this.actions[name];
-    if (!nextAction || nextAction === this.activeAction) return;
-    nextAction.reset();
-    nextAction.play();
-    nextAction.fadeIn(fadeDuration);
-    if (this.activeAction) {
+    if (!nextAction) return false;
+
+    if (nextAction === this.activeAction) {
+      if (!restart) return true;
+      nextAction.stop();
+    } else if (this.activeAction) {
       this.activeAction.fadeOut(fadeDuration);
     }
+
+    nextAction.enabled = true;
+    nextAction.reset();
+    nextAction.setEffectiveTimeScale(1);
+    nextAction.setEffectiveWeight(1);
+    nextAction.play();
+    nextAction.fadeIn(fadeDuration);
     this.activeAction = nextAction;
+    return true;
+  }
+
+  returnToRun() {
+    if (!this.isJumping && !this.isSliding && gameState === 'playing') {
+      this.setAction('run', 0.08);
+    }
   }
 
   moveLeft() {
@@ -262,7 +270,7 @@ class RunnerPlayer {
       this.isJumping = true;
       this.jumpVelocity = 0.45;
       if (this.isModelLoaded && this.actions.jump) {
-        this.setAction('jump', 0.12);
+        this.setAction('jump', 0.05, true);
       }
     }
   }
@@ -274,14 +282,14 @@ class RunnerPlayer {
       this.collider.scale.y = 0.45;
       this.collider.position.y = -0.5;
       if (this.actions.slide) {
-        this.setAction('slide', 0.12);
+        this.setAction('slide', 0.05, true);
       }
     }
   }
 
   playFalling() {
     if (this.actions.falling) {
-      this.setAction('falling', 0.2);
+      this.setAction('falling', 0.04, true);
       return true;
     }
     console.warn('Falling animation is not available. Showing the game over scene without it.');
@@ -300,7 +308,7 @@ class RunnerPlayer {
     this.collider.position.set(0, 0, 0);
     this.mesh.position.set(lanes[1], 0.9, 0);
     if (this.actions.run) {
-      this.setAction('run', 0.15);
+      this.setAction('run', 0.08, true);
     }
   }
 
@@ -316,6 +324,7 @@ class RunnerPlayer {
         this.verticalPosition = 0;
         this.jumpVelocity = 0;
         this.isJumping = false;
+        this.returnToRun();
       }
     }
 
@@ -325,6 +334,7 @@ class RunnerPlayer {
         this.isSliding = false;
         this.collider.scale.y = 1;
         this.collider.position.y = 0;
+        this.returnToRun();
       }
     }
 
@@ -412,13 +422,12 @@ class RunnerObstacle {
 }
 
 class CoinItem {
-  constructor(lane) {
+  constructor(x, y, z) {
     const geometry = new THREE.TorusGeometry(0.4, 0.14, 12, 24);
     const material = new THREE.MeshStandardMaterial({ color: 0xffe74c, emissive: 0x332d00 });
     this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.position.set(lanes[lane], 1.6, -100);
+    this.mesh.position.set(x, y, z);
     this.mesh.rotation.x = Math.PI / 2;
-    this.lane = lane;
     this.active = true;
   }
 
@@ -552,6 +561,85 @@ function showGameOver() {
   overlayGameOver.classList.add('active');
 }
 
+function spawnCoin(x, y, z) {
+  const coin = new CoinItem(x, y, z);
+  scene.add(coin.mesh);
+  coins.push(coin);
+}
+
+function spawnCoinLine(lane, startZ, count = 6, spacing = 3) {
+  for (let index = 0; index < count; index += 1) {
+    spawnCoin(lanes[lane], 1.35, startZ - index * spacing);
+  }
+}
+
+function spawnCoinArc(lane, obstacleZ, count = 7) {
+  const spacing = 3;
+  const startZ = obstacleZ + spacing * Math.floor(count / 2);
+
+  for (let index = 0; index < count; index += 1) {
+    const progress = index / (count - 1);
+    const height = 1.2 + Math.sin(progress * Math.PI) * 1.7;
+    spawnCoin(lanes[lane], height, startZ - index * spacing);
+  }
+}
+
+function spawnSlideCoins(lane, obstacleZ, count = 7) {
+  const spacing = 2.7;
+  const startZ = obstacleZ + spacing * Math.floor(count / 2);
+
+  for (let index = 0; index < count; index += 1) {
+    spawnCoin(lanes[lane], 0.55, startZ - index * spacing);
+  }
+}
+
+function spawnLaneChangeCoins(fromLane, toLane, startZ, count = 7, spacing = 3) {
+  const transitionEndIndex = Math.max(1, count - 3);
+
+  for (let index = 0; index < count; index += 1) {
+    const progress = Math.min(1, index / transitionEndIndex);
+    const smoothProgress = progress * progress * (3 - 2 * progress);
+    const x = THREE.MathUtils.lerp(lanes[fromLane], lanes[toLane], smoothProgress);
+    spawnCoin(x, 1.35, startZ - index * spacing);
+  }
+}
+
+function chooseSafeLane(blockedLane) {
+  const safeLanes = lanes
+    .map((_, laneIndex) => laneIndex)
+    .filter((laneIndex) => laneIndex !== blockedLane);
+  const adjacentLanes = safeLanes.filter((laneIndex) => Math.abs(laneIndex - blockedLane) === 1);
+  const choices = adjacentLanes.length > 0 ? adjacentLanes : safeLanes;
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
+function spawnObstacleGuide(lane, obstacleType, obstacleZ) {
+  if (obstacleType === 'low') {
+    spawnCoinArc(lane, obstacleZ);
+    return;
+  }
+
+  if (obstacleType === 'overhead') {
+    spawnSlideCoins(lane, obstacleZ);
+    return;
+  }
+
+  const safeLane = chooseSafeLane(lane);
+  spawnLaneChangeCoins(lane, safeLane, obstacleZ + 12);
+}
+
+function spawnStandaloneCoinPattern() {
+  const startLane = Math.floor(Math.random() * lanes.length);
+
+  if (Math.random() < 0.55) {
+    spawnCoinLine(startLane, -101);
+    return;
+  }
+
+  const targetLane = chooseSafeLane(startLane);
+  spawnLaneChangeCoins(startLane, targetLane, -99);
+}
+
 function spawnItem() {
   const choice = Math.random();
   const lane = Math.floor(Math.random() * lanes.length);
@@ -569,12 +657,10 @@ function spawnItem() {
     obstacle.mesh.position.z = -110;
     scene.add(obstacle.mesh);
     obstacles.push(obstacle);
+    spawnObstacleGuide(lane, obstacleType, obstacle.mesh.position.z);
     lastObstacleType = obstacleType;
   } else {
-    const coin = new CoinItem(lane);
-    coin.mesh.position.z = -110;
-    scene.add(coin.mesh);
-    coins.push(coin);
+    spawnStandaloneCoinPattern();
     lastObstacleType = null;
   }
 }
@@ -589,7 +675,11 @@ function updateRoad(delta, speed) {
 }
 
 function updateGame(delta) {
-  const speed = (itemSpeedBase + score * 0.002) * speedMultiplier;
+  const speedProgress = 1 - Math.exp(-score / speedRampScore);
+  const speed = Math.min(
+    itemSpeedMax,
+    THREE.MathUtils.lerp(itemSpeedBase, itemSpeedMax, speedProgress) * speedMultiplier
+  );
   score += delta * 20;
   scoreDisplay.textContent = `${Math.floor(score)}`;
   coinDisplay.textContent = `${coinsCollected}`;
@@ -600,7 +690,12 @@ function updateGame(delta) {
   spawnTimer -= delta;
   if (spawnTimer <= 0) {
     spawnItem();
-    spawnTimer = spawnIntervalSeconds - Math.min(0.25, score * 0.0025);
+    const spawnProgress = 1 - Math.exp(-score / spawnIntervalRampScore);
+    spawnTimer = THREE.MathUtils.lerp(
+      spawnIntervalSeconds,
+      minimumSpawnIntervalSeconds,
+      spawnProgress
+    );
   }
 
   for (const obstacle of obstacles) {

@@ -4,12 +4,25 @@
 
 This prototype is a working 3D endless runner built with Three.js. The startup regression introduced by the Mixamo FBX integration has been fixed without changing the core gameplay loop.
 
+## Latest Update - June 11, 2026
+
+- Replaced isolated random coins with guided straight, lane-change, jump, slide, and safe-lane patterns.
+- Linked coin guidance to obstacle behavior so low obstacles teach jumping, overhead obstacles teach sliding, and tall obstacles direct the player toward an adjacent safe lane.
+- Preserved coin collection, rotation, collision, scoring, and cleanup behavior.
+- Replaced the original unlimited linear speed increase with a smooth capped curve.
+- Tuned the current curve to a `0.62` maximum with a `950` score ramp so it becomes challenging sooner while remaining substantially fairer than the original formula.
+- Fixed repeated action animations by allowing jump, slide, falling, and restart transitions to interrupt or restart the active visual action.
+- Separated gameplay action timing from animation completion so collider and movement state remain authoritative.
+- Reduced jump and slide blend time to 0.05 seconds and falling blend time to 0.04 seconds.
+- Verified repeated keyboard slides, downward swipe slides, keyboard and swipe jumps, horizontal lane movement, falling before the game-over overlay, restart, coin collection, obstacle avoidance, score updates, and normal rendering in local Chrome.
+- The June 11 publication scope is limited to `game.js` and `progress.md`; the unused untracked `assets/character animation/` duplicate folder is intentionally excluded.
+
 ## Startup Bug
 
 - What was broken: clicking `Start Game` did nothing after FBX support was added.
 - Root cause: `FBXLoader.js` imports the bare module name `three`, while the page only loaded Three.js as a classic global script. The browser could not resolve the module, so `game.js` stopped before `init()` attached the Start and Restart button listeners.
 - Fix: `index.html` now provides an import map for the same Three.js version, and `game.js` imports `THREE` from that module.
-- Asset loading is asynchronous and does not block starting the game.
+- Asset loading is asynchronous, and the Start button remains disabled until the required preload attempt finishes.
 - A visible placeholder player remains available if `Run.fbx` fails.
 - Failed optional animation clips log errors but do not stop gameplay.
 
@@ -63,6 +76,35 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - If required character loading fails, the blue placeholder remains available and the UI reports a fallback-ready state.
 - Replaced the per-reload timestamp cache key with a stable character asset version so the current skin is cached across reloads.
 
+## Guided Coin Patterns And Speed Balancing
+
+- Replaced isolated random coin spawns with readable multi-coin paths.
+- Straight coin lines now provide rewarding forward guidance within one lane.
+- Lane-change paths smoothly curve between lanes instead of requiring abrupt movement.
+- Low obstacles receive a raised coin arc that visually teaches the player to jump.
+- Overhead obstacles receive a low coin line beneath the bar that visually teaches the player to slide.
+- Tall obstacles receive a curved path toward an adjacent safe lane instead of placing coins into the blocked lane.
+- Obstacle guide coins use vertical or lateral clearance so they do not spawn inside obstacle collision meshes.
+- Coin spacing and path lengths are balanced for readable mobile reaction timing without filling every lane.
+- Existing coin collision, rotation, removal, and coin-count behavior remain unchanged.
+- Replaced the fast linear speed increase with a smooth easing curve.
+- Movement speed now approaches a capped maximum instead of increasing without limit.
+- Spawn timing also tightens gradually, avoiding the sharp early difficulty increase from the previous formula.
+
+## Responsive Input And Animation Synchronization
+
+- Jump and slide inputs now force-restart their matching animation clips immediately.
+- Repeated slide or jump actions no longer depend on whether the previous visual clip has emitted a mixer completion event.
+- Gameplay state remains responsible for jump height, slide duration, collider shape, and whether a new action is allowed.
+- Animation state is now visual only and can be interrupted without changing collision behavior.
+- Jump and slide use shorter 0.05-second blends for faster visual response.
+- Falling uses a 0.04-second blend and interrupts any active run, jump, or slide animation on collision.
+- Landing and slide completion return to run only when gameplay confirms that neither action is active.
+- Restart force-resets the run animation so a clamped action pose cannot carry into a new game.
+- Keyboard and swipe inputs continue to call the same movement methods, keeping their gameplay and animation behavior synchronized.
+- The eased speed curve was tuned from a `0.58` maximum with a `1200` score ramp to a `0.62` maximum with a `950` score ramp.
+- The revised speed remains capped and substantially slower than the original linear increase, while becoming challenging sooner than the first balanced version.
+
 ## Completed Work
 
 - Created `index.html`, `styles.css`, and `game.js`.
@@ -81,6 +123,10 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Added reliable character asset cache busting for replaced `Run.fbx` files.
 - Added automatic Mixamo bone-prefix retargeting for animation clips from compatible Mixamo rigs.
 - Added gated character and animation preloading before Start Game becomes available.
+- Added straight, lane-change, jump-arc, slide, and safe-lane coin guidance patterns.
+- Added smoother capped movement-speed scaling and a gentler spawn-frequency ramp.
+- Added interruptible, restartable character actions synchronized to gameplay input and completion.
+- Increased the capped speed curve slightly while preserving its smooth early-game ramp.
 
 ## Files Created or Changed
 
@@ -93,6 +139,21 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - `assets/characters/runner/Jump.fbx`
 - `assets/characters/runner/Slide.fbx`
 - `assets/characters/runner/Falling.fbx`
+
+Latest coin and speed balancing changes:
+
+- `game.js`
+- `progress.md`
+
+Latest animation responsiveness changes:
+
+- `game.js`
+- `progress.md`
+
+Current June 11, 2026 publication:
+
+- `game.js`
+- `progress.md`
 
 ## Working Features
 
@@ -112,6 +173,25 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Jump clears low barriers, slide clears overhead bars, and lane switching avoids tall walls.
 - The selected new character skin plays Run, Jump, Slide, and Falling without T-pose transitions.
 - Restart reuses already loaded character assets and does not repeat the initial FBX loading work.
+- Coins form readable paths for forward movement, lane changes, jumps, slides, and tall-obstacle avoidance.
+- Game speed rises gradually toward a fixed maximum instead of accelerating rapidly throughout a run.
+- Repeated jump and slide inputs replay their visual animations as soon as gameplay accepts the action.
+- Falling interrupts the active animation immediately, and gameplay completion safely returns the character to run.
+
+## Latest Validation
+
+- Straight coin lines rendered and collected correctly.
+- Lane-change paths rendered as readable curves and remained collectible while changing lanes.
+- Jump arcs cleared low-obstacle collision geometry.
+- Low slide paths cleared overhead bars and supports.
+- Tall-obstacle paths moved into an adjacent safe lane without intersecting the wall.
+- Two consecutive keyboard slides visibly restarted the slide pose and cleared repeated overhead obstacles.
+- A third repeated slide triggered by a synthetic mobile swipe also cleared its obstacle.
+- Keyboard and swipe jump inputs immediately showed the jump action.
+- Keyboard and swipe lane changes moved the player toward the requested lane.
+- Collision immediately interrupted the active action with Falling, followed by the delayed game-over overlay.
+- Restart removed the overlay, reset score and coins, and force-restarted the run animation.
+- `git diff --check` passed; only line-ending normalization warnings were reported.
 
 ## Known Issues / Limitations
 
@@ -128,6 +208,10 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Random single-lane spawning does not yet create authored multi-obstacle patterns or difficulty tiers.
 - Automatic animation retargeting currently supports compatible Mixamo rigs whose main difference is the `mixamorig` numeric prefix.
 - The current FBX character is large for the web; converting the character and animations to GLB/GLTF is recommended for faster downloads and parsing.
+- Coin spacing, arc height, pattern frequency, and the new maximum speed are initial balancing values that still need extended testing on a range of phone sizes.
+- Coin paths guide a safe response to the obstacle they accompany, but they do not yet account for the player's current lane when a new pattern is created.
+- Animation responsiveness depends on compatible replacement clips having sensible start poses; unusually authored FBX clips may still need per-clip trimming or time scaling.
+- The `0.62` speed cap and `950` score ramp are updated balancing values and should be validated through longer mobile sessions.
 
 ## Recommended Next Steps
 
@@ -138,3 +222,7 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 5. Tune jump height, slide duration, obstacle dimensions, and spawn spacing on mobile devices.
 6. Replace remaining placeholder geometry with original QQ Studio brand assets.
 7. Add audio, camera polish, and a first-time tutorial.
+8. Add authored obstacle-and-coin sequences with difficulty tiers and guaranteed transitions between consecutive patterns.
+9. Playtest coin spacing and the capped speed curve on low-end mobile devices, then tune from recorded completion and collision data.
+10. Add a small animation-debug overlay or automated test hook for action name, gameplay state, and collider state during future character tuning.
+11. Evaluate per-animation playback speed and clip trimming if replacement Mixamo files have long anticipation or recovery frames.
