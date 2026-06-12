@@ -8,6 +8,13 @@ const speedRampScore = 950;
 const spawnIntervalSeconds = 1.2;
 const minimumSpawnIntervalSeconds = 1;
 const spawnIntervalRampScore = 1600;
+const backgroundDurationSeconds = 30;
+const backgroundFadeMilliseconds = 900;
+const backgroundViews = [
+  { name: 'daylight', path: 'assets/backgrounds/daylight.png' },
+  { name: 'sunset', path: 'assets/backgrounds/sunset.png' },
+  { name: 'evening', path: 'assets/backgrounds/evening.png' }
+];
 const gameOverDelaySeconds = 0.8;
 const obstacleTypes = ['low', 'tall', 'overhead'];
 const characterAssetVersion = '2026-06-09-new-skin';
@@ -23,8 +30,104 @@ let speedMultiplier = 1;
 let gameOverTimer = 0;
 let lastObstacleType = null;
 let scoreDisplay, coinDisplay, overlayStart, overlayGameOver, finalScoreLabel, finalCoinsLabel;
-let startButton, restartButton, loadingStatus;
+let startButton, restartButton, loadingStatus, backgroundLayer, backgroundFade;
 let touchStart = null;
+let backgroundCycle = null;
+
+class BackgroundCycle {
+  constructor(layer, fadeLayer) {
+    this.layer = layer;
+    this.fadeLayer = fadeLayer;
+    this.currentIndex = 0;
+    this.elapsedSeconds = 0;
+    this.isTransitioning = false;
+    this.transitionToken = 0;
+    this.swapTimeout = null;
+    this.finishTimeout = null;
+    this.readyPromise = this.preload();
+  }
+
+  preloadImage(view) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(view);
+      image.onerror = () => reject(new Error(`Failed to load background: ${view.path}`));
+      image.src = view.path;
+    });
+  }
+
+  async preload() {
+    const results = await Promise.allSettled(
+      backgroundViews.map((view) => this.preloadImage(view))
+    );
+    const failedViews = results
+      .map((result, index) => ({ result, view: backgroundViews[index] }))
+      .filter(({ result }) => result.status === 'rejected');
+
+    failedViews.forEach(({ result, view }) => {
+      console.error(`Failed to preload ${view.path}.`, result.reason);
+    });
+
+    const daylightReady = results[0].status === 'fulfilled';
+    if (daylightReady) {
+      this.applyBackground(0);
+    }
+
+    return {
+      fallback: failedViews.length > 0,
+      daylightReady
+    };
+  }
+
+  applyBackground(index) {
+    this.currentIndex = index;
+    const view = backgroundViews[index];
+    this.layer.style.backgroundImage = `url("${view.path}")`;
+    this.layer.dataset.background = view.name;
+  }
+
+  clearTransitionTimers() {
+    window.clearTimeout(this.swapTimeout);
+    window.clearTimeout(this.finishTimeout);
+    this.swapTimeout = null;
+    this.finishTimeout = null;
+  }
+
+  reset() {
+    this.transitionToken += 1;
+    this.clearTransitionTimers();
+    this.elapsedSeconds = 0;
+    this.isTransitioning = false;
+    this.fadeLayer.classList.remove('active');
+    this.applyBackground(0);
+  }
+
+  update(delta) {
+    this.elapsedSeconds += delta;
+    if (this.elapsedSeconds < backgroundDurationSeconds || this.isTransitioning) return;
+
+    this.elapsedSeconds -= backgroundDurationSeconds;
+    this.transitionToNext();
+  }
+
+  transitionToNext() {
+    this.isTransitioning = true;
+    const token = ++this.transitionToken;
+    const nextIndex = (this.currentIndex + 1) % backgroundViews.length;
+    this.fadeLayer.classList.add('active');
+
+    this.swapTimeout = window.setTimeout(() => {
+      if (token !== this.transitionToken) return;
+      this.applyBackground(nextIndex);
+      this.fadeLayer.classList.remove('active');
+
+      this.finishTimeout = window.setTimeout(() => {
+        if (token !== this.transitionToken) return;
+        this.isTransitioning = false;
+      }, backgroundFadeMilliseconds);
+    }, backgroundFadeMilliseconds);
+  }
+}
 
 class RunnerPlayer {
   constructor(onLoadingStatus) {
@@ -489,14 +592,19 @@ function setupScene() {
     scene.add(line);
   }
 
+  backgroundCycle = new BackgroundCycle(backgroundLayer, backgroundFade);
   player = new RunnerPlayer(updateLoadingStatus);
   scene.add(player.mesh);
 
-  player.readyPromise.then(({ fallback, placeholder }) => {
+  Promise.all([player.readyPromise, backgroundCycle.readyPromise]).then(([
+    { fallback: playerFallback, placeholder },
+    { fallback: backgroundFallback }
+  ]) => {
+    const fallback = playerFallback || backgroundFallback;
     const readyMessage = placeholder
       ? 'Ready (placeholder fallback)'
       : fallback
-        ? 'Ready (limited animations)'
+        ? 'Ready (limited assets)'
         : 'Ready';
     updateLoadingStatus(readyMessage, fallback);
     startButton.textContent = 'Start Game';
@@ -530,6 +638,9 @@ function resetGame() {
   coins = [];
   if (player) {
     player.resetState();
+  }
+  if (backgroundCycle) {
+    backgroundCycle.reset();
   }
   scoreDisplay.textContent = '0';
   coinDisplay.textContent = '0';
@@ -685,6 +796,7 @@ function updateGame(delta) {
   coinDisplay.textContent = `${coinsCollected}`;
 
   player.update(delta);
+  backgroundCycle.update(delta);
   updateRoad(delta, speed);
 
   spawnTimer -= delta;
@@ -817,6 +929,8 @@ function init() {
   startButton = document.getElementById('start-button');
   restartButton = document.getElementById('restart-button');
   loadingStatus = document.getElementById('loading-status');
+  backgroundLayer = document.getElementById('background-layer');
+  backgroundFade = document.getElementById('background-fade');
   startButton.disabled = true;
 
   setupScene();
