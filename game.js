@@ -3,12 +3,12 @@ import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/j
 
 const lanes = [-2.5, 0, 2.5];
 const itemSpeedBase = 0.35;
-const itemSpeedMax = 0.62;
-const speedRampScore = 950;
+const itemSpeedMax = 0.68;
+const speedRampScore = 700;
 const spawnIntervalSeconds = 1.2;
 const minimumSpawnIntervalSeconds = 1;
 const spawnIntervalRampScore = 1600;
-const backgroundDurationSeconds = 30;
+const backgroundDurationSeconds = 15;
 const backgroundFadeMilliseconds = 900;
 const backgroundViews = [
   { name: 'daylight', path: 'assets/backgrounds/daylight.png' },

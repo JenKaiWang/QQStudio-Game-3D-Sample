@@ -10,7 +10,7 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Linked coin guidance to obstacle behavior so low obstacles teach jumping, overhead obstacles teach sliding, and tall obstacles direct the player toward an adjacent safe lane.
 - Preserved coin collection, rotation, collision, scoring, and cleanup behavior.
 - Replaced the original unlimited linear speed increase with a smooth capped curve.
-- Tuned the current curve to a `0.62` maximum with a `950` score ramp so it becomes challenging sooner while remaining substantially fairer than the original formula.
+- Tuned the current curve to a `0.68` maximum with a `700` score ramp so it becomes challenging sooner while remaining substantially fairer than the original formula.
 - Fixed repeated action animations by allowing jump, slide, falling, and restart transitions to interrupt or restart the active visual action.
 - Separated gameplay action timing from animation completion so collider and movement state remain authoritative.
 - Reduced jump and slide blend time to 0.05 seconds and falling blend time to 0.04 seconds.
@@ -26,16 +26,24 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Added a full-screen background layer behind the transparent Three.js canvas.
 - Background images preload alongside the character assets before Start Game becomes available.
 - Active gameplay time controls the background cycle:
-  - 0-30 seconds: Daylight
-  - 30-60 seconds: Sunset
-  - 60-90 seconds: Evening
-  - 90-120 seconds: Daylight again
+  - 0-15 seconds: Daylight
+  - 15-30 seconds: Sunset
+  - 30-45 seconds: Evening
+  - 45-60 seconds: Daylight again
 - The sequence continues in the same order for as long as the run remains active.
 - Background time pauses while the game is on the start screen, dying, or game-over screen.
 - Each change uses a 0.9-second fade toward near-black, swaps the image while dark, and fades the new view back in over 0.9 seconds.
 - The fade layer sits behind the Three.js canvas and UI, so movement, controls, obstacles, coins, and score remain visible and playable during the transition.
 - Restart cancels any pending background transition, resets the active-time counter, and restores Daylight immediately.
 - Missing city images log clear console errors and allow the game to start with the available assets.
+
+## Faster Smooth Difficulty Ramp
+
+- Increased the capped movement speed from `0.62` to `0.68`.
+- Reduced the easing ramp score from `950` to `700`, so speed builds more noticeably during the first minute.
+- The exponential easing formula remains unchanged, preserving gradual acceleration without sudden speed jumps.
+- Approximate movement speeds are now `0.43` after 10 seconds, `0.54` after 30 seconds, and `0.62` after 60 seconds.
+- The new values remain dramatically below the original uncapped linear formula, which reached approximately `0.75`, `1.55`, and `2.75` at the same times.
 
 ## Startup Bug
 
@@ -122,8 +130,8 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Landing and slide completion return to run only when gameplay confirms that neither action is active.
 - Restart force-resets the run animation so a clamped action pose cannot carry into a new game.
 - Keyboard and swipe inputs continue to call the same movement methods, keeping their gameplay and animation behavior synchronized.
-- The eased speed curve was tuned from a `0.58` maximum with a `1200` score ramp to a `0.62` maximum with a `950` score ramp.
-- The revised speed remains capped and substantially slower than the original linear increase, while becoming challenging sooner than the first balanced version.
+- The eased speed curve was first tuned from a `0.58` maximum with a `1200` score ramp to a `0.62` maximum with a `950` score ramp.
+- The current curve uses a `0.68` maximum with a `700` score ramp, increasing challenge sooner while remaining capped and substantially slower than the original linear increase.
 
 ## Completed Work
 
@@ -148,6 +156,7 @@ This prototype is a working 3D endless runner built with Three.js. The startup r
 - Added interruptible, restartable character actions synchronized to gameplay input and completion.
 - Increased the capped speed curve slightly while preserving its smooth early-game ramp.
 - Added a preloaded Daylight, Sunset, and Evening city background cycle with smooth fades.
+- Increased the smooth capped speed ramp and shortened each city view to 15 seconds.
 
 ## Files Created or Changed
 
@@ -208,7 +217,7 @@ Latest looping background changes:
 - Game speed rises gradually toward a fixed maximum instead of accelerating rapidly throughout a run.
 - Repeated jump and slide inputs replay their visual animations as soon as gameplay accepts the action.
 - Falling interrupts the active animation immediately, and gameplay completion safely returns the character to run.
-- City backgrounds cycle every 30 seconds of active gameplay without interrupting movement or resetting the game.
+- City backgrounds cycle every 15 seconds of active gameplay without interrupting movement or resetting the game.
 - Restart consistently returns the environment to the Daylight view.
 
 ## Latest Validation
@@ -225,7 +234,7 @@ Latest looping background changes:
 - Collision immediately interrupted the active action with Falling, followed by the delayed game-over overlay.
 - Restart removed the overlay, reset score and coins, and force-restarted the run animation.
 - All three city plates preloaded before the Start button became available.
-- A continuous browser run verified Daylight at startup, Sunset after 30 seconds, Evening after 60 seconds, and the loop back to Daylight after 90 seconds.
+- A continuous browser run verified transition starts after 15, 30, and 45 seconds of active gameplay, cycling Daylight to Sunset to Evening and back to Daylight.
 - Score and coin collection continued during each fade without resetting or pausing gameplay.
 - The fade layer reached near-black before each image swap and then revealed the next view without visual popping.
 - Restart during the test canceled the active cycle, reset the timer, and restored Daylight.
@@ -250,7 +259,7 @@ Latest looping background changes:
 - Coin spacing, arc height, pattern frequency, and the new maximum speed are initial balancing values that still need extended testing on a range of phone sizes.
 - Coin paths guide a safe response to the obstacle they accompany, but they do not yet account for the player's current lane when a new pattern is created.
 - Animation responsiveness depends on compatible replacement clips having sensible start poses; unusually authored FBX clips may still need per-clip trimming or time scaling.
-- The `0.62` speed cap and `950` score ramp are updated balancing values and should be validated through longer mobile sessions.
+- The `0.68` speed cap and `700` score ramp are updated balancing values and should be validated through longer mobile sessions.
 - The three generated background plates add roughly 5 MB of image downloads and should be compressed to WebP or optimized JPEG before a production playable-ad build.
 - CSS `background-size: cover` crops the city plates differently on narrow portrait screens; the central skyline remains visible, but dedicated portrait variants may improve composition.
 
